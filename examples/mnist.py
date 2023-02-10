@@ -224,7 +224,16 @@ for Z_DIM in [2, 4, 8, 16, 32]:
     modelB = modelB.to(device)
     optimizerB = optim.Adam(modelB.parameters(), lr=1e-3)
    
+    print('##### Hyper-spherical VAE #####')
 
+    for epoch in range(EPOCHS):
+        # training for 1 epoch
+        train(modelS, optimizerS)
+
+        # test
+        test(modelS, optimizerS)
+        print()
+    
     print('##### Binary VAE #####')
 
     for epoch in range(EPOCHS):
@@ -247,13 +256,4 @@ for Z_DIM in [2, 4, 8, 16, 32]:
 
         print()
 
-    print('##### Hyper-spherical VAE #####')
-
-    for epoch in range(EPOCHS):
-        # training for 1 epoch
-        train(modelS, optimizerS)
-
-        # test
-        test(modelS, optimizerS)
-        print()
-    
+   
