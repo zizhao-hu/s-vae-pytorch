@@ -92,7 +92,7 @@ class ModelVAE(torch.nn.Module):
             p_z = torch.distributions.normal.Normal(torch.zeros_like(z_mean), torch.ones_like(z_var))
         elif self.distribution == 'vmf':
             q_z = VonMisesFisher(z_mean, z_var)
-            p_z = HypersphericalUniform(self.z_dim - 1)
+            p_z = HypersphericalUniform(self.z_dim - 1, )
         else:
             raise NotImplemented
 
@@ -205,7 +205,7 @@ def test(model, optimizer):
 # hidden dimension and dimension of latent space
 H_DIM = 128
 
-EPOCHS = 10
+EPOCHS = 20
 
 for Z_DIM in [2, 4, 8, 16, 32]:
 
@@ -224,6 +224,28 @@ for Z_DIM in [2, 4, 8, 16, 32]:
     modelB = modelB.to(device)
     optimizerB = optim.Adam(modelB.parameters(), lr=1e-3)
    
+    # print('##### Binary VAE #####')
+
+    # for epoch in range(EPOCHS):
+    #     # training for 1 epoch
+    #     train(modelB, optimizerB)
+
+    #     # test
+    #     test(modelB, optimizerB)
+
+    #     print()
+
+    # print('##### Normal VAE #####')
+
+    # for epoch in range(EPOCHS):
+    #     # training for 1 epoch
+    #     train(modelN, optimizerN)
+
+    #     # test
+    #     test(modelN, optimizerN)
+
+    #     print()
+
     print('##### Hyper-spherical VAE #####')
 
     for epoch in range(EPOCHS):
@@ -234,26 +256,5 @@ for Z_DIM in [2, 4, 8, 16, 32]:
         test(modelS, optimizerS)
         print()
     
-    print('##### Binary VAE #####')
-
-    for epoch in range(EPOCHS):
-        # training for 1 epoch
-        train(modelB, optimizerB)
-
-        # test
-        test(modelB, optimizerB)
-
-        print()
-
-    print('##### Normal VAE #####')
-
-    for epoch in range(EPOCHS):
-        # training for 1 epoch
-        train(modelN, optimizerN)
-
-        # test
-        test(modelN, optimizerN)
-
-        print()
 
    
