@@ -7,7 +7,8 @@ import torch.optim as optim
 import torch.utils.data
 from torchvision import datasets, transforms
 from collections import defaultdict
-
+from sklearn.mixture import GaussianMixture
+from sklearn.metrics.cluster import normalized_mutual_info_score
 from hyperspherical_vae.distributions import VonMisesFisher
 from hyperspherical_vae.distributions import HypersphericalUniform
 
@@ -120,14 +121,14 @@ def log_likelihood(model, x, n=10):
 
     log_p_z = p_z.log_prob(z)
 
-    if model.distribution == 'normal' or 'binary':
+    if model.distribution == 'normal' or model.distribution == 'binary':
         log_p_z = log_p_z.sum(-1)
 
     log_p_x_z = -nn.BCEWithLogitsLoss(reduction='none')(x_mb_, x.reshape(-1, 784).repeat((n, 1, 1))).sum(-1)
 
     log_q_z_x = q_z.log_prob(z)
 
-    if model.distribution == 'normal' or 'binary':
+    if model.distribution == 'normal' or model.distribution == 'binary':
         log_q_z_x = log_q_z_x.sum(-1)
 
     return ((log_p_x_z + log_p_z - log_q_z_x).t().logsumexp(-1) - np.log(n)).mean()
@@ -162,13 +163,24 @@ def train(model, optimizer):
             
 def test(model, optimizer):
     print_ = defaultdict(list)
+    full_train_loader = torch.utils.data.DataLoader(datasets.MNIST('./data', train=True, download=True, 
+    transform=transforms.ToTensor()), batch_size=50000, shuffle=False)
+
+
+    full_train_data, _ = iter(full_train_loader).__next__()
+    (z_mean, z_var),_,_,_ = model(full_train_data.reshape(-1, 784))
+    gm = GaussianMixture(n_components=10, random_state=0).fit(z_mean)
+    
     for x_mb, y_mb in test_loader:
         
         # dynamic binarization
         x_mb = (x_mb > torch.distributions.Uniform(0, 1).sample(x_mb.shape)).float()
         
         (z_mean, z_var), (q_z, p_z), _, x_mb_ = model(x_mb.reshape(-1, 784))
-        
+        y_gm = gm.predict(z_mean)
+        NMI = normalized_mutual_info_score(y_mb, y_gm)
+        print_['NMI'].append(NMI)
+
         print_['recon loss'].append(float(nn.BCEWithLogitsLoss(reduction='none')(x_mb_,
             x_mb.reshape(-1, 784)).sum(-1).mean().data))
         
@@ -190,9 +202,9 @@ def test(model, optimizer):
 # hidden dimension and dimension of latent space
 H_DIM = 128
 
-EPOCHS = 10
+EPOCHS = 1
 
-for Z_DIM in [10, 4, 8, 16, 32]:
+for Z_DIM in [2, 4, 8, 16, 32]:
 
     # normal VAE
     modelN = ModelVAE(h_dim=H_DIM, z_dim=Z_DIM, distribution='normal')
@@ -205,16 +217,8 @@ for Z_DIM in [10, 4, 8, 16, 32]:
     # binary  VAE
     modelB = ModelVAE(h_dim=H_DIM, z_dim=Z_DIM, distribution='binary')
     optimizerB = optim.Adam(modelB.parameters(), lr=1e-3)
-    print('##### Hyper-spherical VAE #####')
+   
 
-    for epoch in range(EPOCHS):
-        # training for 1 epoch
-        train(modelS, optimizerS)
-
-        # test
-        test(modelS, optimizerS)
-        print()
-        
     print('##### Binary VAE #####')
 
     for epoch in range(EPOCHS):
@@ -237,5 +241,13 @@ for Z_DIM in [10, 4, 8, 16, 32]:
 
         print()
 
+    print('##### Hyper-spherical VAE #####')
 
+    for epoch in range(EPOCHS):
+        # training for 1 epoch
+        train(modelS, optimizerS)
+
+        # test
+        test(modelS, optimizerS)
+        print()
     
