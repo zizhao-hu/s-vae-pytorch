@@ -18,7 +18,7 @@ train_loader = torch.utils.data.DataLoader(datasets.MNIST('./data', train=True, 
 test_loader = torch.utils.data.DataLoader(datasets.MNIST('./data', train=False, download=True,
     transform=transforms.ToTensor()), batch_size=64)
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+device = torch.device("cpu" if torch.cuda.is_available() else "cpu")
 
 class ModelVAE(torch.nn.Module):
     
