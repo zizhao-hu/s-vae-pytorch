@@ -202,7 +202,7 @@ def test(model, optimizer):
 # hidden dimension and dimension of latent space
 H_DIM = 128
 
-EPOCHS = 1
+EPOCHS = 10
 
 for Z_DIM in [2, 4, 8, 16, 32]:
 
