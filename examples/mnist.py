@@ -205,6 +205,16 @@ for Z_DIM in [10, 4, 8, 16, 32]:
     # binary  VAE
     modelB = ModelVAE(h_dim=H_DIM, z_dim=Z_DIM, distribution='binary')
     optimizerB = optim.Adam(modelB.parameters(), lr=1e-3)
+    print('##### Hyper-spherical VAE #####')
+
+    for epoch in range(EPOCHS):
+        # training for 1 epoch
+        train(modelS, optimizerS)
+
+        # test
+        test(modelS, optimizerS)
+        print()
+        
     print('##### Binary VAE #####')
 
     for epoch in range(EPOCHS):
@@ -228,12 +238,4 @@ for Z_DIM in [10, 4, 8, 16, 32]:
         print()
 
 
-    print('##### Hyper-spherical VAE #####')
-
-    for epoch in range(EPOCHS):
-        # training for 1 epoch
-        train(modelS, optimizerS)
-
-        # test
-        test(modelS, optimizerS)
-        print()
+    
