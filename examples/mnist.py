@@ -61,7 +61,7 @@ class ModelVAE(torch.nn.Module):
         x = self.activation(self.fc_e0(x))
         x = self.activation(self.fc_e1(x))
         
-        if self.distribution == 'normal':
+        if self.distribution == 'normal' or self.distribution == 'binaryl'  :
             # compute mean and std of the normal distribution
             z_mean = self.fc_mean(x)
             z_var = F.softplus(self.fc_var(x))
@@ -85,7 +85,7 @@ class ModelVAE(torch.nn.Module):
         return x
         
     def reparameterize(self, z_mean, z_var):
-        if self.distribution == 'normal':
+        if self.distribution == 'normal' or 'binary':
             q_z = torch.distributions.normal.Normal(z_mean, z_var)
             p_z = torch.distributions.normal.Normal(torch.zeros_like(z_mean), torch.ones_like(z_var))
         elif self.distribution == 'vmf':
@@ -120,14 +120,14 @@ def log_likelihood(model, x, n=10):
 
     log_p_z = p_z.log_prob(z)
 
-    if model.distribution == 'normal':
+    if model.distribution == 'normal' or 'binary':
         log_p_z = log_p_z.sum(-1)
 
     log_p_x_z = -nn.BCEWithLogitsLoss(reduction='none')(x_mb_, x.reshape(-1, 784).repeat((n, 1, 1))).sum(-1)
 
     log_q_z_x = q_z.log_prob(z)
 
-    if model.distribution == 'normal':
+    if model.distribution == 'normal' or 'binary':
         log_q_z_x = log_q_z_x.sum(-1)
 
     return ((log_p_x_z + log_p_z - log_q_z_x).t().logsumexp(-1) - np.log(n)).mean()
@@ -141,7 +141,7 @@ def train(model, optimizer):
             # dynamic binarization
             x_mb = (x_mb > torch.distributions.Uniform(0, 1).sample(x_mb.shape)).float()
 
-            _, (q_z, p_z), _, x_mb_ = model(x_mb.reshape(-1, 784))
+            (z_mean,z_var), (q_z, p_z), _, x_mb_ = model(x_mb.reshape(-1, 784))
 
             loss_recon = nn.BCEWithLogitsLoss(reduction='none')(x_mb_, x_mb.reshape(-1, 784)).sum(-1).mean()
 
@@ -149,6 +149,8 @@ def train(model, optimizer):
                 loss_KL = torch.distributions.kl.kl_divergence(q_z, p_z).sum(-1).mean()
             elif model.distribution == 'vmf':
                 loss_KL = torch.distributions.kl.kl_divergence(q_z, p_z).mean()
+            elif model.distribution == 'binary':
+                loss_KL = -0.5 * torch.mean(1 + torch.log(z_var) - (abs(z_mean)-1).pow(2) - z_var)
             else:
                 raise NotImplemented
 
@@ -174,6 +176,8 @@ def test(model, optimizer):
             print_['KL'].append(float(torch.distributions.kl.kl_divergence(q_z, p_z).sum(-1).mean().data))
         elif model.distribution == 'vmf':
             print_['KL'].append(float(torch.distributions.kl.kl_divergence(q_z, p_z).mean().data))
+        elif model.distribution == 'binary':
+            print_['KL'].append(float(torch.distributions.kl.kl_divergence(q_z, p_z).sum(-1).mean().data))
         else:
             raise NotImplemented
         
@@ -186,29 +190,50 @@ def test(model, optimizer):
 # hidden dimension and dimension of latent space
 H_DIM = 128
 Z_DIM = 5
+EPOCHS = 10
 
-# normal VAE
-modelN = ModelVAE(h_dim=H_DIM, z_dim=Z_DIM, distribution='normal')
-optimizerN = optim.Adam(modelN.parameters(), lr=1e-3)
+for Z_DIM in [2, 4, 8, 16, 32]:
 
-print('##### Normal VAE #####')
+    # normal VAE
+    modelN = ModelVAE(h_dim=H_DIM, z_dim=Z_DIM, distribution='normal')
+    optimizerN = optim.Adam(modelN.parameters(), lr=1e-3)
 
-# training for 1 epoch
-train(modelN, optimizerN)
+    # hyper-spherical  VAE
+    modelS = ModelVAE(h_dim=H_DIM, z_dim=Z_DIM + 1, distribution='vmf')
+    optimizerS = optim.Adam(modelS.parameters(), lr=1e-3)
 
-# test
-test(modelN, optimizerN)
+    # binary  VAE
+    modelB = ModelVAE(h_dim=H_DIM, z_dim=Z_DIM, distribution='binary')
+    optimizerB = optim.Adam(modelB.parameters(), lr=1e-3)
+    print('##### Binary VAE #####')
 
-print()
+    for epoch in range(EPOCHS):
+        # training for 1 epoch
+        train(modelB, optimizerB)
 
-# hyper-spherical  VAE
-modelS = ModelVAE(h_dim=H_DIM, z_dim=Z_DIM + 1, distribution='vmf')
-optimizerS = optim.Adam(modelS.parameters(), lr=1e-3)
+        # test
+        test(modelB, optimizerB)
 
-print('##### Hyper-spherical VAE #####')
+        print()
 
-# training for 1 epoch
-train(modelS, optimizerS)
+    print('##### Normal VAE #####')
 
-# test
-test(modelS, optimizerS)
+    for epoch in range(EPOCHS):
+        # training for 1 epoch
+        train(modelN, optimizerN)
+
+        # test
+        test(modelN, optimizerN)
+
+        print()
+
+
+    print('##### Hyper-spherical VAE #####')
+
+    for epoch in range(EPOCHS):
+        # training for 1 epoch
+        train(modelS, optimizerS)
+
+        # test
+        test(modelS, optimizerS)
+        print()
