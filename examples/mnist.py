@@ -61,7 +61,7 @@ class ModelVAE(torch.nn.Module):
         x = self.activation(self.fc_e0(x))
         x = self.activation(self.fc_e1(x))
         
-        if self.distribution == 'normal' or self.distribution == 'binaryl'  :
+        if self.distribution == 'normal' or self.distribution == 'binary'  :
             # compute mean and std of the normal distribution
             z_mean = self.fc_mean(x)
             z_var = F.softplus(self.fc_var(x))
@@ -85,7 +85,7 @@ class ModelVAE(torch.nn.Module):
         return x
         
     def reparameterize(self, z_mean, z_var):
-        if self.distribution == 'normal' or 'binary':
+        if self.distribution == 'normal' or self.distribution == 'binary':
             q_z = torch.distributions.normal.Normal(z_mean, z_var)
             p_z = torch.distributions.normal.Normal(torch.zeros_like(z_mean), torch.ones_like(z_var))
         elif self.distribution == 'vmf':
@@ -167,7 +167,7 @@ def test(model, optimizer):
         # dynamic binarization
         x_mb = (x_mb > torch.distributions.Uniform(0, 1).sample(x_mb.shape)).float()
         
-        _, (q_z, p_z), _, x_mb_ = model(x_mb.reshape(-1, 784))
+        (z_mean, z_var), (q_z, p_z), _, x_mb_ = model(x_mb.reshape(-1, 784))
         
         print_['recon loss'].append(float(nn.BCEWithLogitsLoss(reduction='none')(x_mb_,
             x_mb.reshape(-1, 784)).sum(-1).mean().data))
@@ -177,7 +177,7 @@ def test(model, optimizer):
         elif model.distribution == 'vmf':
             print_['KL'].append(float(torch.distributions.kl.kl_divergence(q_z, p_z).mean().data))
         elif model.distribution == 'binary':
-            print_['KL'].append(float(torch.distributions.kl.kl_divergence(q_z, p_z).sum(-1).mean().data))
+            print_['KL'].append(float((-0.5 * torch.mean(1 + torch.log(z_var) - (abs(z_mean)-1).pow(2) - z_var)).data))
         else:
             raise NotImplemented
         
