@@ -169,7 +169,7 @@ def test(model, optimizer):
 
     full_train_data, _ = iter(full_train_loader).__next__()
     (z_mean, z_var),_,_,_ = model(full_train_data.reshape(-1, 784))
-    gm = GaussianMixture(n_components=10, random_state=0).fit(z_mean)
+    gm = GaussianMixture(n_components=10, random_state=0).fit(z_mean.detach().numpy())
     
     for x_mb, y_mb in test_loader:
         
@@ -177,8 +177,8 @@ def test(model, optimizer):
         x_mb = (x_mb > torch.distributions.Uniform(0, 1).sample(x_mb.shape)).float()
         
         (z_mean, z_var), (q_z, p_z), _, x_mb_ = model(x_mb.reshape(-1, 784))
-        y_gm = gm.predict(z_mean)
-        NMI = normalized_mutual_info_score(y_mb, y_gm)
+        y_gm = gm.predict(z_mean.detach().numpy())
+        NMI = normalized_mutual_info_score(y_mb.detach().numpy(), y_gm)
         print_['NMI'].append(NMI)
 
         print_['recon loss'].append(float(nn.BCEWithLogitsLoss(reduction='none')(x_mb_,
