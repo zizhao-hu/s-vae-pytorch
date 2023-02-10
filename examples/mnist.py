@@ -44,6 +44,10 @@ class ModelVAE(torch.nn.Module):
             # compute mean and concentration of the von Mises-Fisher
             self.fc_mean = nn.Linear(h_dim, z_dim)
             self.fc_var = nn.Linear(h_dim, 1)
+        elif self.distribution == 'binary':
+            # compute mean and concentration of the von Mises-Fisher
+            self.fc_mean = nn.Linear(h_dim, z_dim)
+            self.fc_var = nn.Linear(h_dim, z_dim)
         else:
             raise NotImplemented
             
