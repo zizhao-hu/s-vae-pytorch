@@ -18,6 +18,7 @@ train_loader = torch.utils.data.DataLoader(datasets.MNIST('./data', train=True, 
 test_loader = torch.utils.data.DataLoader(datasets.MNIST('./data', train=False, download=True,
     transform=transforms.ToTensor()), batch_size=64)
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class ModelVAE(torch.nn.Module):
     
@@ -141,7 +142,7 @@ def train(model, optimizer):
             
             # dynamic binarization
             x_mb = (x_mb > torch.distributions.Uniform(0, 1).sample(x_mb.shape)).float()
-
+            x_mb = x_mb.to(device)
             (z_mean,z_var), (q_z, p_z), _, x_mb_ = model(x_mb.reshape(-1, 784))
 
             loss_recon = nn.BCEWithLogitsLoss(reduction='none')(x_mb_, x_mb.reshape(-1, 784)).sum(-1).mean()
@@ -168,17 +169,19 @@ def test(model, optimizer):
 
 
     full_train_data, _ = iter(full_train_loader).__next__()
+    full_train_data = full_train_data.to(device)
+
     (z_mean, z_var),_,_,_ = model(full_train_data.reshape(-1, 784))
-    gm = GaussianMixture(n_components=10, random_state=0).fit(z_mean.detach().numpy())
+    gm = GaussianMixture(n_components=10, random_state=0).fit(z_mean.detach().cpu().numpy())
     
     for x_mb, y_mb in test_loader:
         
         # dynamic binarization
         x_mb = (x_mb > torch.distributions.Uniform(0, 1).sample(x_mb.shape)).float()
-        
+        x_mb = x_mb.to(device)
         (z_mean, z_var), (q_z, p_z), _, x_mb_ = model(x_mb.reshape(-1, 784))
-        y_gm = gm.predict(z_mean.detach().numpy())
-        NMI = normalized_mutual_info_score(y_mb.detach().numpy(), y_gm)
+        y_gm = gm.predict(z_mean.detach().cpu().numpy())
+        NMI = normalized_mutual_info_score(y_mb.detach().cpu().numpy(), y_gm)
         print_['NMI'].append(NMI)
 
         print_['recon loss'].append(float(nn.BCEWithLogitsLoss(reduction='none')(x_mb_,
@@ -208,14 +211,17 @@ for Z_DIM in [2, 4, 8, 16, 32]:
 
     # normal VAE
     modelN = ModelVAE(h_dim=H_DIM, z_dim=Z_DIM, distribution='normal')
+    modelN = modelN.to(device)
     optimizerN = optim.Adam(modelN.parameters(), lr=1e-3)
 
     # hyper-spherical  VAE
     modelS = ModelVAE(h_dim=H_DIM, z_dim=Z_DIM + 1, distribution='vmf')
+    modelS = modelS.to(device)
     optimizerS = optim.Adam(modelS.parameters(), lr=1e-3)
 
     # binary  VAE
     modelB = ModelVAE(h_dim=H_DIM, z_dim=Z_DIM, distribution='binary')
+    modelB = modelB.to(device)
     optimizerB = optim.Adam(modelB.parameters(), lr=1e-3)
    
 
