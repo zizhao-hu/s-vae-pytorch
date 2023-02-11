@@ -14,9 +14,9 @@ from hyperspherical_vae.distributions import HypersphericalUniform
 import time
 
 
-train_loader = torch.utils.data.DataLoader(datasets.MNIST('./data', train=True, download=True,
+train_loader = torch.utils.data.DataLoader(datasets.CIFAR100('./data', train=True, download=True,
     transform=transforms.ToTensor()), batch_size=64, shuffle=True)
-test_loader = torch.utils.data.DataLoader(datasets.MNIST('./data', train=False, download=True,
+test_loader = torch.utils.data.DataLoader(datasets.CIFAR100('./data', train=False, download=True,
     transform=transforms.ToTensor()), batch_size=64)
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
@@ -193,7 +193,7 @@ def test(model, optimizer):
         elif model.distribution == 'vmf':
             print_['KL'].append(float(torch.distributions.kl.kl_divergence(q_z, p_z).mean().data))
         elif model.distribution == 'binary':
-            print_['KL'].append(float((-0.5 * torch.mean(1 + torch.log(z_var) - (abs(z_mean)-1).pow(2) - z_var)).data))
+            print_['KL'].append(float((-0.5 * torch.mean(1 + torch.log(z_var) - (abs(z_mean)-2).pow(2) - z_var)).data))
         else:
             raise NotImplemented
         
