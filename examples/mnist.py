@@ -229,8 +229,9 @@ for Z_DIM in [2, 4, 8, 16, 32]:
 
     for epoch in range(EPOCHS):
         # training for 1 epoch
+        start = time.process_time()
         train(modelB, optimizerB)
-
+        print("training time: ",time.process_time() - start)
         # test
         test(modelB, optimizerB)
 
@@ -240,7 +241,9 @@ for Z_DIM in [2, 4, 8, 16, 32]:
 
     for epoch in range(EPOCHS):
         # training for 1 epoch
+        start = time.process_time()
         train(modelN, optimizerN)
+        print("training time: ",time.process_time() - start)
 
         # test
         test(modelN, optimizerN)
