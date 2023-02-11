@@ -18,7 +18,7 @@ train_loader = torch.utils.data.DataLoader(datasets.MNIST('./data', train=True, 
 test_loader = torch.utils.data.DataLoader(datasets.MNIST('./data', train=False, download=True,
     transform=transforms.ToTensor()), batch_size=64)
 
-device = torch.device("cpu" if torch.cuda.is_available() else "cpu")
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class ModelVAE(torch.nn.Module):
     
@@ -92,7 +92,7 @@ class ModelVAE(torch.nn.Module):
             p_z = torch.distributions.normal.Normal(torch.zeros_like(z_mean), torch.ones_like(z_var))
         elif self.distribution == 'vmf':
             q_z = VonMisesFisher(z_mean, z_var)
-            p_z = HypersphericalUniform(self.z_dim - 1, )
+            p_z = HypersphericalUniform(self.z_dim - 1, validate_args=False, device = device)
         else:
             raise NotImplemented
 
@@ -175,7 +175,7 @@ def test(model, optimizer):
     gm = GaussianMixture(n_components=10, random_state=0).fit(z_mean.detach().cpu().numpy())
     
     for x_mb, y_mb in test_loader:
-        
+    
         # dynamic binarization
         x_mb = (x_mb > torch.distributions.Uniform(0, 1).sample(x_mb.shape)).float()
         x_mb = x_mb.to(device)
