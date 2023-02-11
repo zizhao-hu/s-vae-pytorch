@@ -11,6 +11,7 @@ from sklearn.mixture import GaussianMixture
 from sklearn.metrics.cluster import normalized_mutual_info_score
 from hyperspherical_vae.distributions import VonMisesFisher
 from hyperspherical_vae.distributions import HypersphericalUniform
+import time
 
 
 train_loader = torch.utils.data.DataLoader(datasets.MNIST('./data', train=True, download=True,
@@ -208,7 +209,7 @@ H_DIM = 128
 EPOCHS = 20
 
 for Z_DIM in [2, 4, 8, 16, 32]:
-
+    print("z_dim: ", Z_DIM)
     # normal VAE
     modelN = ModelVAE(h_dim=H_DIM, z_dim=Z_DIM, distribution='normal')
     modelN = modelN.to(device)
@@ -224,34 +225,37 @@ for Z_DIM in [2, 4, 8, 16, 32]:
     modelB = modelB.to(device)
     optimizerB = optim.Adam(modelB.parameters(), lr=1e-3)
    
-    # print('##### Binary VAE #####')
+    print('##### Binary VAE #####')
 
-    # for epoch in range(EPOCHS):
-    #     # training for 1 epoch
-    #     train(modelB, optimizerB)
+    for epoch in range(EPOCHS):
+        # training for 1 epoch
+        train(modelB, optimizerB)
 
-    #     # test
-    #     test(modelB, optimizerB)
+        # test
+        test(modelB, optimizerB)
 
-    #     print()
+        print()
 
-    # print('##### Normal VAE #####')
+    print('##### Normal VAE #####')
 
-    # for epoch in range(EPOCHS):
-    #     # training for 1 epoch
-    #     train(modelN, optimizerN)
+    for epoch in range(EPOCHS):
+        # training for 1 epoch
+        train(modelN, optimizerN)
 
-    #     # test
-    #     test(modelN, optimizerN)
+        # test
+        test(modelN, optimizerN)
 
-    #     print()
+        print()
 
     print('##### Hyper-spherical VAE #####')
 
     for epoch in range(EPOCHS):
         # training for 1 epoch
+        start = time.process_time()
+
         train(modelS, optimizerS)
 
+        print("training time: ",time.process_time() - start)
         # test
         test(modelS, optimizerS)
         print()
