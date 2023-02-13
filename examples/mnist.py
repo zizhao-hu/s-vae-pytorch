@@ -165,24 +165,33 @@ def train(model, optimizer):
             
 def test(model, optimizer):
     print_ = defaultdict(list)
-    full_train_loader = torch.utils.data.DataLoader(datasets.MNIST('./data', train=True, download=True, 
-    transform=transforms.ToTensor()), batch_size=50000, shuffle=False)
+    for i, (x_mb, y_mb) in enumerate(train_loader):
+        x_mb = x_mb.to(device)
 
-
-    full_train_data, _ = iter(full_train_loader).__next__()
-    full_train_data = full_train_data.to(device)
-
-    (z_mean, z_var),_,_,_ = model(full_train_data.reshape(-1, 784))
-    gm = GaussianMixture(n_components=10, random_state=0).fit(z_mean.detach().cpu().numpy())
+        (z_mean, z_var),_,_,_ = model(x_mb.reshape(-1, 784))
+        if i == 0:
+            z_means = z_mean.detach().cpu().numpy()
+        else:
+            z_means = np.concatenate((z_means,z_mean.detach().cpu().numpy()))
+   
+    gm = GaussianMixture(n_components=10, random_state=0).fit(z_means)
     
-    for x_mb, y_mb in test_loader:
+    for i, (x_mb, y_mb) in enumerate(test_loader):
     
         # dynamic binarization
         x_mb = (x_mb > torch.distributions.Uniform(0, 1).sample(x_mb.shape)).float()
         x_mb = x_mb.to(device)
         (z_mean, z_var), (q_z, p_z), _, x_mb_ = model(x_mb.reshape(-1, 784))
         y_gm = gm.predict(z_mean.detach().cpu().numpy())
-        NMI = normalized_mutual_info_score(y_mb.detach().cpu().numpy(), y_gm)
+        if i == 0:
+            y_gm_sofar = y_gm
+            y_sofar = y_mb.detach().cpu().numpy()
+        else:
+            y_gm_sofar = np.concatenate((y_gm, y_gm_sofar))
+            y_sofar = np.concatenate((y_mb.detach().cpu().numpy(),y_sofar))
+
+        NMI = normalized_mutual_info_score(y_sofar, y_gm_sofar)
+        
         print_['NMI'].append(NMI)
 
         print_['recon loss'].append(float(nn.BCEWithLogitsLoss(reduction='none')(x_mb_,
