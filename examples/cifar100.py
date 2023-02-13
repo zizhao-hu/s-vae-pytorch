@@ -13,13 +13,155 @@ from hyperspherical_vae.distributions import VonMisesFisher
 from hyperspherical_vae.distributions import HypersphericalUniform
 import time
 
+device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
 
 train_loader = torch.utils.data.DataLoader(datasets.CIFAR100('./data', train=True, download=True,
     transform=transforms.ToTensor()), batch_size=64, shuffle=True)
 test_loader = torch.utils.data.DataLoader(datasets.CIFAR100('./data', train=False, download=True,
     transform=transforms.ToTensor()), batch_size=64)
 
-device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
+
+
+class ResizeConv2d(nn.Module):
+
+    def __init__(self, in_channels, out_channels, kernel_size, scale_factor, mode='nearest'):
+        super().__init__()
+        self.scale_factor = scale_factor
+        self.mode = mode
+        self.conv = nn.Conv2d(in_channels, out_channels, kernel_size, stride=1, padding=1)
+
+    def forward(self, x):
+        x = F.interpolate(x, scale_factor=self.scale_factor, mode=self.mode)
+        x = self.conv(x)
+        return x
+
+class BasicBlockEnc(nn.Module):
+    
+
+    def __init__(self, in_planes, stride=1):
+        super().__init__()
+
+        planes = in_planes*stride
+
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
+
+        if stride == 1:
+            self.shortcut = nn.Sequential()
+        else:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=False),
+                nn.BatchNorm2d(planes)
+            )
+
+    def forward(self, x):
+        out = torch.relu(self.bn1(self.conv1(x)))
+        out = self.bn2(self.conv2(out))
+        out += self.shortcut(x)
+        out = torch.relu(out)
+        return out
+
+class BasicBlockDec(nn.Module):
+
+    def __init__(self, in_planes, stride=1):
+        super().__init__()
+
+        planes = int(in_planes/stride)
+
+        self.conv2 = nn.Conv2d(in_planes, in_planes, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(in_planes)
+        # self.bn1 could have been placed here, but that messes up the order of the layers when printing the class
+
+        if stride == 1:
+            self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
+            self.bn1 = nn.BatchNorm2d(planes)
+            self.shortcut = nn.Sequential()
+        else:
+            self.conv1 = ResizeConv2d(in_planes, planes, kernel_size=3, scale_factor=stride)
+            self.bn1 = nn.BatchNorm2d(planes)
+            self.shortcut = nn.Sequential(
+                ResizeConv2d(in_planes, planes, kernel_size=3, scale_factor=stride),
+                nn.BatchNorm2d(planes)
+            )
+
+    def forward(self, x):
+        out = torch.relu(self.bn2(self.conv2(x)))
+        out = self.bn1(self.conv1(out))
+        out += self.shortcut(x)
+        out = torch.relu(out)
+        return out
+
+class ResNet18Enc(nn.Module):
+
+    def __init__(self, num_Blocks=[2,2,2,2], z_dim=10, nc=3):
+        super().__init__()
+        self.in_planes = 64
+        self.z_dim = z_dim
+        self.conv1 = nn.Conv2d(nc, 64, kernel_size=3, stride=1, padding=1, bias=False)
+        self.bn1 = nn.BatchNorm2d(64)
+        self.layer1 = self._make_layer(BasicBlockEnc, 64, num_Blocks[0], stride=1)
+        self.layer2 = self._make_layer(BasicBlockEnc, 128, num_Blocks[1], stride=2)
+        self.layer3 = self._make_layer(BasicBlockEnc, 256, num_Blocks[2], stride=2)
+        self.layer4 = self._make_layer(BasicBlockEnc, 512, num_Blocks[3], stride=2)
+        self.linear = nn.Linear(512, 2 * z_dim)
+
+    def _make_layer(self, BasicBlockEnc, planes, num_Blocks, stride):
+        strides = [stride] + [1]*(num_Blocks-1)
+        layers = []
+        for stride in strides:
+            layers += [BasicBlockEnc(self.in_planes, stride)]
+            self.in_planes = planes
+        return nn.Sequential(*layers)
+
+    def forward(self, x):
+        x = torch.relu(self.bn1(self.conv1(x)))
+        x = self.layer1(x)
+        x = self.layer2(x)
+        x = self.layer3(x)
+        x = self.layer4(x)
+        x = F.adaptive_avg_pool2d(x, 1)
+        x = x.view(x.size(0), -1)
+        x = self.linear(x)
+        mu = x[:, :self.z_dim]
+        logvar = x[:, self.z_dim:]
+        return mu, logvar
+
+class ResNet18Dec(nn.Module):
+
+    def __init__(self, num_Blocks=[2,2,2,2], z_dim=10, nc=3):
+        super().__init__()
+        self.in_planes = 512
+
+        self.linear = nn.Linear(z_dim, 512)
+
+        self.layer4 = self._make_layer(BasicBlockDec, 256, num_Blocks[3], stride=2)
+        self.layer3 = self._make_layer(BasicBlockDec, 128, num_Blocks[2], stride=2)
+        self.layer2 = self._make_layer(BasicBlockDec, 64, num_Blocks[1], stride=2)
+        self.layer1 = self._make_layer(BasicBlockDec, 64, num_Blocks[0], stride=1)
+        self.conv1 = ResizeConv2d(64, nc, kernel_size=3, scale_factor=1)
+
+    def _make_layer(self, BasicBlockDec, planes, num_Blocks, stride):
+        strides = [stride] + [1]*(num_Blocks-1)
+        layers = []
+        for stride in reversed(strides):
+            layers += [BasicBlockDec(self.in_planes, stride)]
+        self.in_planes = planes
+        return nn.Sequential(*layers)
+
+    def forward(self, z):
+        x = self.linear(z)
+        x = x.view(z.size(0), 512, 1, 1)
+        x = F.interpolate(x, scale_factor=4)
+        x = self.layer4(x)
+        x = self.layer3(x)
+        x = self.layer2(x)
+        x = self.layer1(x)
+        x = torch.sigmoid(self.conv1(x))
+        x = x.view(x.size(0), 3, 32, 32)
+        return x
 
 class ModelVAE(torch.nn.Module):
     
@@ -34,7 +176,8 @@ class ModelVAE(torch.nn.Module):
         super(ModelVAE, self).__init__()
         
         self.z_dim, self.activation, self.distribution = z_dim, activation, distribution
-        
+        self.encoder = ResNet18Enc(z_dim = z_dim)
+        self.decoder = ResNet18Dec(z_dim = z_dim)
         # 2 hidden layers encoder
         self.fc_e0 = nn.Linear(3072, h_dim * 2)
         self.fc_e1 = nn.Linear(h_dim * 2, h_dim)
@@ -61,30 +204,26 @@ class ModelVAE(torch.nn.Module):
 
     def encode(self, x):
         # 2 hidden layers encoder
-        x = self.activation(self.fc_e0(x))
-        x = self.activation(self.fc_e1(x))
-        
+        z_mean, z_var = self.encoder(x)
+        z_var = z_var.exp()
+
         if self.distribution == 'normal' or self.distribution == 'binary'  :
             # compute mean and std of the normal distribution
-            z_mean = self.fc_mean(x)
-            z_var = F.softplus(self.fc_var(x))
+            z_mean = z_mean
+            z_var = F.softplus(z_var)
         elif self.distribution == 'vmf':
             # compute mean and concentration of the von Mises-Fisher
-            z_mean = self.fc_mean(x)
+            z_mean = z_mean
             z_mean = z_mean / z_mean.norm(dim=-1, keepdim=True)
             # the `+ 1` prevent collapsing behaviors
-            z_var = F.softplus(self.fc_var(x)) + 1
+            z_var = F.softplus(z_var) + 1
         else:
             raise NotImplemented
         
         return z_mean, z_var
         
     def decode(self, z):
-        
-        x = self.activation(self.fc_d0(z))
-        x = self.activation(self.fc_d1(x))
-        x = self.fc_logits(x)
-        
+        x = self.decoder(z)
         return x
         
     def reparameterize(self, z_mean, z_var):
@@ -116,7 +255,7 @@ def log_likelihood(model, x, n=10):
     :return: MC estimate of log-likelihood
     """
 
-    z_mean, z_var = model.encode(x.reshape(-1, 3072))
+    z_mean, z_var = model.encode(x)
     q_z, p_z = model.reparameterize(z_mean, z_var)
     z = q_z.rsample(torch.Size([n]))
     x_mb_ = model.decode(z)
@@ -126,7 +265,7 @@ def log_likelihood(model, x, n=10):
     if model.distribution == 'normal' or model.distribution == 'binary':
         log_p_z = log_p_z.sum(-1)
 
-    log_p_x_z = -nn.BCEWithLogitsLoss(reduction='none')(x_mb_, x.reshape(-1, 3072).repeat((n, 1, 1))).sum(-1)
+    log_p_x_z = -nn.BCEWithLogitsLoss(reduction='sum')(x_mb_, x)
 
     log_q_z_x = q_z.log_prob(z)
 
@@ -141,12 +280,10 @@ def train(model, optimizer):
 
             optimizer.zero_grad()
             
-            # dynamic binarization
-            x_mb = (x_mb > torch.distributions.Uniform(0, 1).sample(x_mb.shape)).float()
             x_mb = x_mb.to(device)
-            (z_mean,z_var), (q_z, p_z), _, x_mb_ = model(x_mb.reshape(-1, 3072))
+            (z_mean,z_var), (q_z, p_z), _, x_mb_ = model(x_mb)
 
-            loss_recon = nn.BCEWithLogitsLoss(reduction='none')(x_mb_, x_mb.reshape(-1, 3072)).sum(-1).mean()
+            loss_recon = nn.BCEWithLogitsLoss(reduction='sum')(x_mb_, x_mb)
 
             if model.distribution == 'normal':
                 loss_KL = torch.distributions.kl.kl_divergence(q_z, p_z).sum(-1).mean()
@@ -165,28 +302,32 @@ def train(model, optimizer):
             
 def test(model, optimizer):
     print_ = defaultdict(list)
-    full_train_loader = torch.utils.data.DataLoader(datasets.MNIST('./data', train=True, download=True, 
-    transform=transforms.ToTensor()), batch_size=50000, shuffle=False)
+    
+    for i, (x_mb, y_mb) in enumerate(train_loader):
+        (z_mean, z_var),_,_,_ = model(x_mb)
+        if i == 0:
+          z_means = z_mean.detach().cpu().numpy()
+        else:
+          z_means = np.concatenate((z_means, z_mean.detach().cpu().numpy()))
+        print(z_means.shape)
+        print(z_mean.detach().cpu().numpy())
+        print(z_means)
 
 
-    full_train_data, _ = iter(full_train_loader).__next__()
-    full_train_data = full_train_data.to(device)
-
-    (z_mean, z_var),_,_,_ = model(full_train_data.reshape(-1, 3072))
-    gm = GaussianMixture(n_components=100, random_state=0).fit(z_mean.detach().cpu().numpy())
+    gm = GaussianMixture(n_components=100, random_state=0).fit(z_means)
     
     for x_mb, y_mb in test_loader:
     
         # dynamic binarization
         x_mb = (x_mb > torch.distributions.Uniform(0, 1).sample(x_mb.shape)).float()
         x_mb = x_mb.to(device)
-        (z_mean, z_var), (q_z, p_z), _, x_mb_ = model(x_mb.reshape(-1, 3072))
+        (z_mean, z_var), (q_z, p_z), _, x_mb_ = model(x_mb_)
         y_gm = gm.predict(z_mean.detach().cpu().numpy())
         NMI = normalized_mutual_info_score(y_mb.detach().cpu().numpy(), y_gm)
         print_['NMI'].append(NMI)
 
-        print_['recon loss'].append(float(nn.BCEWithLogitsLoss(reduction='none')(x_mb_,
-            x_mb.reshape(-1, 3072)).sum(-1).mean().data))
+        print_['recon loss'].append(float(nn.BCEWithLogitsLoss(reduction='sum')(x_mb_,
+            x_mb).data))
         
         if model.distribution == 'normal':
             print_['KL'].append(float(torch.distributions.kl.kl_divergence(q_z, p_z).sum(-1).mean().data))
@@ -205,10 +346,9 @@ def test(model, optimizer):
 
 # hidden dimension and dimension of latent space
 H_DIM = 128
-
 EPOCHS = 20
 
-for Z_DIM in [2, 4, 8, 16, 32]:
+for Z_DIM in [8, 16, 32, 64, 128]:
     print("z_dim: ", Z_DIM)
     # normal VAE
     modelN = ModelVAE(h_dim=H_DIM, z_dim=Z_DIM, distribution='normal')
