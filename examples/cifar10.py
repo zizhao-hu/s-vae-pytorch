@@ -57,7 +57,7 @@ class ModelVAE(torch.nn.Module):
         # 2 hidden layers decoder
         self.fc_d0 = nn.Linear(z_dim, h_dim)
         self.fc_d1 = nn.Linear(h_dim, h_dim * 2)
-        self.fc_logits = nn.Linear(h_dim * 2, 3072)
+        self.fc_logits = nn.Linear(h_dim * 2, 784)
 
     def encode(self, x):
         # 2 hidden layers encoder
@@ -116,7 +116,7 @@ def log_likelihood(model, x, n=10):
     :return: MC estimate of log-likelihood
     """
 
-    z_mean, z_var = model.encode(x.reshape(-1, 3072))
+    z_mean, z_var = model.encode(x.reshape(-1, 784))
     q_z, p_z = model.reparameterize(z_mean, z_var)
     z = q_z.rsample(torch.Size([n]))
     x_mb_ = model.decode(z)
@@ -126,7 +126,7 @@ def log_likelihood(model, x, n=10):
     if model.distribution == 'normal' or model.distribution == 'binary':
         log_p_z = log_p_z.sum(-1)
 
-    log_p_x_z = -nn.BCEWithLogitsLoss(reduction='none')(x_mb_, x.reshape(-1, 3072).repeat((n, 1, 1))).sum(-1)
+    log_p_x_z = -nn.BCEWithLogitsLoss(reduction='none')(x_mb_, x.reshape(-1, 784).repeat((n, 1, 1))).sum(-1)
 
     log_q_z_x = q_z.log_prob(z)
 
@@ -144,9 +144,9 @@ def train(model, optimizer):
             # dynamic binarization
             x_mb = (x_mb > torch.distributions.Uniform(0, 1).sample(x_mb.shape)).float()
             x_mb = x_mb.to(device)
-            (z_mean,z_var), (q_z, p_z), _, x_mb_ = model(x_mb.reshape(-1, 3072))
+            (z_mean,z_var), (q_z, p_z), _, x_mb_ = model(x_mb.reshape(-1, 784))
 
-            loss_recon = nn.BCEWithLogitsLoss(reduction='none')(x_mb_, x_mb.reshape(-1, 3072)).sum(-1).mean()
+            loss_recon = nn.BCEWithLogitsLoss(reduction='none')(x_mb_, x_mb.reshape(-1, 784)).sum(-1).mean()
 
             if model.distribution == 'normal':
                 loss_KL = torch.distributions.kl.kl_divergence(q_z, p_z).sum(-1).mean()
@@ -165,28 +165,37 @@ def train(model, optimizer):
             
 def test(model, optimizer):
     print_ = defaultdict(list)
-    full_train_loader = torch.utils.data.DataLoader(datasets.MNIST('./data', train=True, download=True, 
-    transform=transforms.ToTensor()), batch_size=50000, shuffle=False)
+    for i, (x_mb, y_mb) in enumerate(train_loader):
+        x_mb = x_mb.to(device)
 
-
-    full_train_data, _ = iter(full_train_loader).__next__()
-    full_train_data = full_train_data.to(device)
-
-    (z_mean, z_var),_,_,_ = model(full_train_data.reshape(-1, 3072))
-    gm = GaussianMixture(n_components=10, random_state=0).fit(z_mean.detach().cpu().numpy())
+        (z_mean, z_var),_,_,_ = model(x_mb.reshape(-1, 784))
+        if i == 0:
+            z_means = z_mean.detach().cpu().numpy()
+        else:
+            z_means = np.concatenate((z_means,z_mean.detach().cpu().numpy()))
+   
+    gm = GaussianMixture(n_components=10, random_state=0).fit(z_means)
     
-    for x_mb, y_mb in test_loader:
+    for i, (x_mb, y_mb) in enumerate(test_loader):
     
         # dynamic binarization
         x_mb = (x_mb > torch.distributions.Uniform(0, 1).sample(x_mb.shape)).float()
         x_mb = x_mb.to(device)
-        (z_mean, z_var), (q_z, p_z), _, x_mb_ = model(x_mb.reshape(-1, 3072))
+        (z_mean, z_var), (q_z, p_z), _, x_mb_ = model(x_mb.reshape(-1, 784))
         y_gm = gm.predict(z_mean.detach().cpu().numpy())
-        NMI = normalized_mutual_info_score(y_mb.detach().cpu().numpy(), y_gm)
+        if i == 0:
+            y_gm_sofar = y_gm
+            y_sofar = y_mb.detach().cpu().numpy()
+        else:
+            y_gm_sofar = np.concatenate((y_gm, y_gm_sofar))
+            y_sofar = np.concatenate((y_mb.detach().cpu().numpy(),y_sofar))
+
+        NMI = normalized_mutual_info_score(y_sofar, y_gm_sofar)
+        
         print_['NMI'].append(NMI)
 
         print_['recon loss'].append(float(nn.BCEWithLogitsLoss(reduction='none')(x_mb_,
-            x_mb.reshape(-1, 3072)).sum(-1).mean().data))
+            x_mb.reshape(-1, 784)).sum(-1).mean().data))
         
         if model.distribution == 'normal':
             print_['KL'].append(float(torch.distributions.kl.kl_divergence(q_z, p_z).sum(-1).mean().data))
