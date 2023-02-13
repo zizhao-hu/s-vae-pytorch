@@ -172,7 +172,7 @@ def test(model, optimizer):
     full_train_data, _ = iter(full_train_loader).__next__()
     full_train_data = full_train_data.to(device)
 
-    (z_mean, z_var),_,_,_ = model(full_train_data.reshape(-1, 784))
+    (z_mean, z_var),_,_,_ = model(full_train_data.reshape(-1, 3072))
     gm = GaussianMixture(n_components=10, random_state=0).fit(z_mean.detach().cpu().numpy())
     
     for x_mb, y_mb in test_loader:
@@ -180,13 +180,13 @@ def test(model, optimizer):
         # dynamic binarization
         x_mb = (x_mb > torch.distributions.Uniform(0, 1).sample(x_mb.shape)).float()
         x_mb = x_mb.to(device)
-        (z_mean, z_var), (q_z, p_z), _, x_mb_ = model(x_mb.reshape(-1, 784))
+        (z_mean, z_var), (q_z, p_z), _, x_mb_ = model(x_mb.reshape(-1, 3072))
         y_gm = gm.predict(z_mean.detach().cpu().numpy())
         NMI = normalized_mutual_info_score(y_mb.detach().cpu().numpy(), y_gm)
         print_['NMI'].append(NMI)
 
         print_['recon loss'].append(float(nn.BCEWithLogitsLoss(reduction='none')(x_mb_,
-            x_mb.reshape(-1, 784)).sum(-1).mean().data))
+            x_mb.reshape(-1, 3072)).sum(-1).mean().data))
         
         if model.distribution == 'normal':
             print_['KL'].append(float(torch.distributions.kl.kl_divergence(q_z, p_z).sum(-1).mean().data))
