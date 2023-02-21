@@ -23,7 +23,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class ModelVAE(torch.nn.Module):
     
-    def __init__(self, h_dim, z_dim, activation=F.relu, distribution='normal'):
+    def __init__(self, h_dim, z_dim, activation=F.relu, distribution='normal', r=0):
         """
         ModelVAE initializer
         :param h_dim: dimension of the hidden layers
@@ -32,7 +32,7 @@ class ModelVAE(torch.nn.Module):
         :param distribution: string either `normal` or `vmf`, indicates which distribution to use
         """
         super(ModelVAE, self).__init__()
-        
+        self.r = r
         self.z_dim, self.activation, self.distribution = z_dim, activation, distribution
         
         # 2 hidden layers encoder
@@ -153,7 +153,7 @@ def train(model, optimizer):
             elif model.distribution == 'vmf':
                 loss_KL = torch.distributions.kl.kl_divergence(q_z, p_z).mean()
             elif model.distribution == 'binary':
-                loss_KL = -0.5 * torch.mean(1 + torch.log(z_var) - (abs(z_mean)-1).pow(2) - z_var)
+                loss_KL = -0.5 * torch.mean(1 + torch.log(z_var) - (abs(z_mean)-model.r).pow(2) - z_var)
             else:
                 raise NotImplemented
 
@@ -202,7 +202,7 @@ def test(model, optimizer):
         elif model.distribution == 'vmf':
             print_['KL'].append(float(torch.distributions.kl.kl_divergence(q_z, p_z).mean().data))
         elif model.distribution == 'binary':
-            print_['KL'].append(float((-0.5 * torch.mean(1 + torch.log(z_var) - (abs(z_mean)-2).pow(2) - z_var)).data))
+            print_['KL'].append(float((-0.5 * torch.mean(1 + torch.log(z_var) - (abs(z_mean)-model.r).pow(2) - z_var)).data))
         else:
             raise NotImplemented
         
