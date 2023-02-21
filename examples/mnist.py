@@ -23,7 +23,7 @@ device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 
 class ModelVAE(torch.nn.Module):
     
-    def __init__(self, h_dim, z_dim, activation=F.relu, distribution='normal'):
+    def __init__(self, h_dim, z_dim, activation=F.relu, distribution='normal', r = 0):
         """
         ModelVAE initializer
         :param h_dim: dimension of the hidden layers
@@ -34,7 +34,7 @@ class ModelVAE(torch.nn.Module):
         super(ModelVAE, self).__init__()
         
         self.z_dim, self.activation, self.distribution = z_dim, activation, distribution
-        
+        self.r = r
         # 2 hidden layers encoder
         self.fc_e0 = nn.Linear(784, h_dim * 2)
         self.fc_e1 = nn.Linear(h_dim * 2, h_dim)
@@ -153,7 +153,7 @@ def train(model, optimizer):
             elif model.distribution == 'vmf':
                 loss_KL = torch.distributions.kl.kl_divergence(q_z, p_z).mean()
             elif model.distribution == 'binary':
-                loss_KL = -0.5 * torch.mean(1 + torch.log(z_var) - (abs(z_mean)-1).pow(2) - z_var)
+                loss_KL = -0.5 * torch.mean(1 + torch.log(z_var) - (abs(z_mean)-model.r).pow(2) - z_var)
             else:
                 raise NotImplemented
 
@@ -202,7 +202,7 @@ def test(model, optimizer):
         elif model.distribution == 'vmf':
             print_['KL'].append(float(torch.distributions.kl.kl_divergence(q_z, p_z).mean().data))
         elif model.distribution == 'binary':
-            print_['KL'].append(float((-0.5 * torch.mean(1 + torch.log(z_var) - (abs(z_mean)-2).pow(2) - z_var)).data))
+            print_['KL'].append(float((-0.5 * torch.mean(1 + torch.log(z_var) - (abs(z_mean)-model.r).pow(2) - z_var)).data))
         else:
             raise NotImplemented
         
@@ -217,20 +217,21 @@ H_DIM = 128
 
 EPOCHS = 20
 
-for Z_DIM in [2, 4, 8, 16, 32]:
+for Z_DIM in [2, 4, 8, 16, 32, 64]:
+  for r in [0.01]:
     print("z_dim: ", Z_DIM)
-    # normal VAE
-    modelN = ModelVAE(h_dim=H_DIM, z_dim=Z_DIM, distribution='normal')
-    modelN = modelN.to(device)
-    optimizerN = optim.Adam(modelN.parameters(), lr=1e-3)
+    # # normal VAE
+    # modelN = ModelVAE(h_dim=H_DIM, z_dim=Z_DIM, distribution='normal')
+    # modelN = modelN.to(device)
+    # optimizerN = optim.Adam(modelN.parameters(), lr=1e-3)
 
-    # hyper-spherical  VAE
-    modelS = ModelVAE(h_dim=H_DIM, z_dim=Z_DIM + 1, distribution='vmf')
-    modelS = modelS.to(device)
-    optimizerS = optim.Adam(modelS.parameters(), lr=1e-3)
+    # # hyper-spherical  VAE
+    # modelS = ModelVAE(h_dim=H_DIM, z_dim=Z_DIM + 1, distribution='vmf')
+    # modelS = modelS.to(device)
+    # optimizerS = optim.Adam(modelS.parameters(), lr=1e-3)
 
     # binary  VAE
-    modelB = ModelVAE(h_dim=H_DIM, z_dim=Z_DIM, distribution='binary')
+    modelB = ModelVAE(h_dim=H_DIM, z_dim=Z_DIM, distribution='binary', r = r)
     modelB = modelB.to(device)
     optimizerB = optim.Adam(modelB.parameters(), lr=1e-3)
    
@@ -246,31 +247,31 @@ for Z_DIM in [2, 4, 8, 16, 32]:
 
         print()
 
-    print('##### Normal VAE #####')
+    # print('##### Normal VAE #####')
 
-    for epoch in range(EPOCHS):
-        # training for 1 epoch
-        start = time.process_time()
-        train(modelN, optimizerN)
-        print("training time: ",time.process_time() - start)
+    # for epoch in range(EPOCHS):
+    #     # training for 1 epoch
+    #     start = time.process_time()
+    #     train(modelN, optimizerN)
+    #     print("training time: ",time.process_time() - start)
 
-        # test
-        test(modelN, optimizerN)
+    #     # test
+    #     test(modelN, optimizerN)
 
-        print()
+    #     print()
 
-    print('##### Hyper-spherical VAE #####')
+    # print('##### Hyper-spherical VAE #####')
 
-    for epoch in range(EPOCHS):
-        # training for 1 epoch
-        start = time.process_time()
+    # for epoch in range(EPOCHS):
+    #     # training for 1 epoch
+    #     start = time.process_time()
 
-        train(modelS, optimizerS)
+    #     train(modelS, optimizerS)
 
-        print("training time: ",time.process_time() - start)
-        # test
-        test(modelS, optimizerS)
-        print()
+    #     print("training time: ",time.process_time() - start)
+    #     # test
+    #     test(modelS, optimizerS)
+    #     print()
     
 
    
